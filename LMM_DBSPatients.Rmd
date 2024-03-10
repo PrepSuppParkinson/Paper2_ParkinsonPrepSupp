@@ -1,0 +1,208 @@
+---
+title: "LMM_DBSPatients"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+#Packages Required
+
+
+```{r packages, include=FALSE}
+library(readr)
+library(tidyverse)
+library(ggpubr)
+library(readxl)
+
+
+library(rstatix)
+library(lme4)
+library(lmerTest)
+library(optimx)
+
+
+```
+
+# Get Data
+
+
+```{r Get Data, echo=TRUE}
+
+DBSdata <- read_excel("Data/moyennes_Delay_%BL-IN_FDI_PD_Do.xlsx")
+
+DBSdata$id<-paste(DBSdata$group,"_", DBSdata$subjectnbr, sep = "")
+DBSdata$Column1<-NULL
+
+
+```
+
+
+
+```{r get just dbs patients}
+
+
+DBSpatients <- subset(DBSdata, group == 1)
+
+
+DBSpatients <- subset(DBSpatients, select = c('id', 
+                                          'handedness', 
+                                          "0_MA_ampl_MA_FDI",
+                                          "0_MA_ampl_LA_FDI",  
+                                          "0_LA_ampl_MA_FDI", 
+                                          "0_LA_ampl_LA_FDI",   
+                                          "1_MA_ampl_MA_FDI", 
+                                          "1_MA_ampl_LA_FDI",  
+                                          "1_LA_ampl_MA_FDI",  
+                                          "1_LA_ampl_LA_FDI"))
+
+
+
+
+```
+
+
+
+```{r convert to long form}
+
+library(reshape2)
+
+# Melt the dataframe into long format
+DBSpatients_long <- melt(DBSpatients, id.vars = c("id", "handedness"), variable.name = "DBS", value.name = "value")
+
+# Print the resulting dataframe
+print(DBSpatients_long)
+
+
+
+# Create the 'ONOFF' column based on the 'measurement' column
+DBSpatients_long <- DBSpatients_long %>%
+  mutate(ONOFF = ifelse(substr(DBS, 1, 1) == "0", 0, 1))
+
+
+
+# Convert 'value' column to numeric
+DBSpatients_long$value <- as.numeric(DBSpatients_long$value)
+
+# Check if conversion is successful
+str(DBSpatients_long$value)
+
+
+```
+
+
+
+
+#LMM
+
+```{r LMM}
+
+# Fit the linear mixed-effects model
+lmm <- lmer(value ~ handedness * ONOFF + (1 | id),
+             data = DBSpatients_long,
+             REML = TRUE, verbose = FALSE)
+
+
+#get Summmary
+summary(lmm)
+
+
+
+```
+
+
+
+# Get Table
+```{r }
+tableLMM<-data.frame(summary(lmm)$coefficients)  
+library(tibble)
+tableLMM <- tibble::rownames_to_column(tableLMM, "Effect")
+# Adding column based on other column:
+tableLMM<-tableLMM %>%
+  mutate(Significant = case_when(
+    tableLMM$Pr...t.. <0.05 ~ "S",
+    tableLMM$Pr...t..>0.05 ~ "NS"
+  ))
+
+colnames(tableLMM)<-c("Effect","Estimate","Std Error","DF","t-value","p-value","Significant")
+tableLMM$Estimate <- lapply(tableLMM$Estimate, round, 4)
+tableLMM$`Std Error` <- lapply(tableLMM$`Std Error`, round, 4)
+tableLMM$DF <- lapply(tableLMM$DF, round, 4)
+tableLMM$`t-value` <- lapply(tableLMM$`t-value`, round, 4)
+tableLMM$`p-value` <- lapply(tableLMM$`p-value`, round, 4)
+tableLMM <- apply(tableLMM,2,as.character)
+
+
+write.csv( tableLMM, "Outputs/LMM_Handedness.csv" , row.names = FALSE)
+
+
+```
+
+
+
+
+
+
+#Tukey
+
+```{r}
+library(emmeans)
+emmeans(lmm, list(pairwise ~ handedness:ONOFF), adjust = "tukey")
+```
+
+
+```{r Tukey ONOFF}
+library(emmeans)
+TukeyHSD<-emmeans(lmm, ~ONOFF)
+TukeyHSD
+tableTukey<-data.frame(pairs(TukeyHSD, adjust="tukey") )
+  
+  library(dplyr)
+# Adding column based on other column:
+tableTukey<-tableTukey %>%
+  mutate(Significant = case_when(
+    tableTukey$p.value<0.05 ~ "S",
+    tableTukey$p.value>0.05 ~ "NS"
+  ))
+tableTukey
+write.csv(tableTukey, "Outputs/TukeyONOFF.csv", row.names = FALSE)
+```
+
+
+
+```{r Tukey Handedness}
+library(emmeans)
+TukeyHSD<-emmeans(lmm, ~handedness)
+TukeyHSD
+tableTukey<-data.frame(pairs(TukeyHSD, adjust="tukey") )
+  
+  library(dplyr)
+# Adding column based on other column:
+tableTukey<-tableTukey %>%
+  mutate(Significant = case_when(
+    tableTukey$p.value<0.05 ~ "S",
+    tableTukey$p.value>0.05 ~ "NS"
+  ))
+tableTukey
+write.csv(tableTukey, "Outputs/TukeyHandedness.csv", row.names = FALSE)
+```
+```{r Tukey ONOFF:Handedness}
+library(emmeans)
+TukeyHSD<-emmeans(lmm, ~handedness:ONOFF)
+TukeyHSD
+tableTukey<-data.frame(pairs(TukeyHSD, adjust="tukey") )
+  
+  library(dplyr)
+# Adding column based on other column:
+tableTukey<-tableTukey %>%
+  mutate(Significant = case_when(
+    tableTukey$p.value<0.05 ~ "S",
+    tableTukey$p.value>0.05 ~ "NS"
+  ))
+tableTukey
+write.csv(tableTukey, "Outputs/TukeyONOFF_Handedness.csv", row.names = FALSE)
+```
